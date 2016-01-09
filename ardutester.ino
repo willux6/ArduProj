@@ -15,7 +15,7 @@
 
 
 
- ARDUTESTER v1.0 2/01/2016
+ ARDUTESTER v1.1a 9/01/2016
  
  Original Source from:        http://www.mikrocontroller.net/articles/AVR-Transistortester
  Original Software:           by Karl-Heinz Kuebbeler (kh_kuebbeler@web.de)
@@ -28,10 +28,7 @@
                               PaoloP (http://www.arduino.cc/forum/index.php?action=profile;u=58300)
  
  - ONLY TTL COMPONENTS!
- 
- TODO:
- - Detailed Component Analysis
- 
+  
  CHANGELOG:
  - 01/05/2013 v06e - Waitus Function, String to Flash Functions, Killed 3 Goto :-), Code Cleanup - PighiXXX 
  - 01/05/2013 v06f - Killed all Goto (Thanks to PaoloP), Implemented Button
@@ -64,6 +61,7 @@
  - 3.01.2016 v1.0    Graphical prsesentation of components and pins, stabilisation: diode and resistor testing loop occurs due to A3 pin mode; P-mosfet hanging due to infinite loop;
  - 5.01.2016         PWM tooli with Timer1 improvements when DOGM128 display uses SPI interface and shares PB2 pin (using CD4066 chip in hardware platform)
  - 7.01.2016 v1.1    PWM tool works now with all display modes
+ - 9.01.2016 v1.1a   Zener
 */
 
 //WorkAround for IDE ifndef bug
@@ -299,7 +297,7 @@ const unsigned char CompOffset_str[] PROGMEM = "AComp";
 const unsigned char PWM_str[] PROGMEM = "PWM";
 const unsigned char Hertz_str[] PROGMEM = "Hz";
 const unsigned char Splash_str[] PROGMEM = "Ardutester ";
-const unsigned char Version_str[] PROGMEM = "v1.1";
+const unsigned char Version_str[] PROGMEM = "v1.1a";
 
 #if defined( DEBUG_PRINT) || defined(LCD_DOGM128) 
   const unsigned char Cap_str[] PROGMEM = {'-','|','|', '-',0};
@@ -3406,23 +3404,29 @@ void ShowDiode(void)
     return;
   }
   //Display pins, first Diode
-  byte x, y;
+  byte x, y, z = ' ';
   if (A < 3) { lcd.lcd_testpin(D1->C); x=D1->C;  }               //Common anode 
   else { lcd.lcd_testpin(D1->A); x=D1->A;  }                    //Common cathode 
+  
   if (A < 3) lcd.lcd_fixed_string(Diode_CA_str);     //Common anode 
   else lcd.lcd_fixed_string(Diode_AC_str);           //Common cathode 
+  
   if (A < 3) { lcd.lcd_testpin(A);   y=A; }                 //Common anode 
   else {lcd.lcd_testpin(C);   y=C;    }                    //Common cathode 
-
-  lcd.pins(x,y,' ');
-  
+ 
   if (D2)                                        //Second diode 
   {
-    if (A <= 3) lcd.lcd_fixed_string(Diode_AC_str);  //Common anode or in series 
-    else lcd.lcd_fixed_string(Diode_CA_str);         //Common cathode 
-    if (A == C) lcd.lcd_testpin(D2->A);              //Anti parallel 
-    else if (A <= 3) lcd.lcd_testpin(D2->C);         //Common anode or in series 
-    else lcd.lcd_testpin(D2->A);                     //Common cathode 
+    if (A <= 3) lcd.lcd_fixed_string(Diode_AC_str);                 //Common anode or in series 
+    else lcd.lcd_fixed_string(Diode_CA_str);                        //Common cathode 
+    if (A == C) { lcd.lcd_testpin(D2->A); z = D2->A; }              //Anti parallel 
+    else if (A <= 3)  { lcd.lcd_testpin(D2->C);  z = D2->C;}        //Common anode or in series 
+    else { lcd.lcd_testpin(D2->A); z = D2->A; }                     //Common cathode 
+  }
+  if( z != ' ') {
+    lcd.component(COMPONENT_ZENER);
+    lcd.pins(y,x,z);
+  } else {
+    lcd.pins(x,y,z);
   }
   /*
      display:
