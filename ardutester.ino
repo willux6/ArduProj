@@ -28,7 +28,10 @@
                               PaoloP (http://www.arduino.cc/forum/index.php?action=profile;u=58300)
  
  - ONLY TTL COMPONENTS!
-  
+ 
+ TODO:
+ - Detailed Component Analysis
+ 
  CHANGELOG:
  - 01/05/2013 v06e - Waitus Function, String to Flash Functions, Killed 3 Goto :-), Code Cleanup - PighiXXX 
  - 01/05/2013 v06f - Killed all Goto (Thanks to PaoloP), Implemented Button
@@ -62,6 +65,7 @@
  - 5.01.2016         PWM tooli with Timer1 improvements when DOGM128 display uses SPI interface and shares PB2 pin (using CD4066 chip in hardware platform)
  - 7.01.2016 v1.1    PWM tool works now with all display modes
  - 9.01.2016 v1.1a   Zener
+ -15.01.2016 v1.1b   Frequency measurement up to 1000Hz
 */
 
 //WorkAround for IDE ifndef bug
@@ -255,6 +259,7 @@ const unsigned char Select_str[] PROGMEM = "Select";
 const unsigned char Selftest_str[] PROGMEM = "Selftest";
 const unsigned char Adjustment_str[] PROGMEM = "Adjustment";
 const unsigned char Default_str[] PROGMEM = "Default Values";
+const unsigned char Freq_str[] PROGMEM = "Measure Frequency";
 const unsigned char Save_str[] PROGMEM = "Save";
 const unsigned char Show_str[] PROGMEM = "Show Values";
 const unsigned char Remove_str[] PROGMEM = "Remove";
@@ -297,7 +302,7 @@ const unsigned char CompOffset_str[] PROGMEM = "AComp";
 const unsigned char PWM_str[] PROGMEM = "PWM";
 const unsigned char Hertz_str[] PROGMEM = "Hz";
 const unsigned char Splash_str[] PROGMEM = "Ardutester ";
-const unsigned char Version_str[] PROGMEM = "v1.1a";
+const unsigned char Version_str[] PROGMEM = "v1.1b";
 
 #if defined( DEBUG_PRINT) || defined(LCD_DOGM128) 
   const unsigned char Cap_str[] PROGMEM = {'-','|','|', '-',0};
@@ -422,6 +427,36 @@ byte                          RunsMissed;        //Counter for failed/missed mea
 byte                          ErrFnd;            //An Error is occured
 byte                          Millis;            // Millis counter
 
+//Frequency measure function variables
+
+volatile unsigned int overflows = 0;    // Timer/Counter 1. 
+volatile unsigned long edges = 0;       // A variable to keep track of how many rising edges of the signal have been counted.
+volatile unsigned long tstart = 0;      // A variable to keep track of the count on Timer/Counter 1 when I start counting the edges of the signal.
+volatile unsigned long tstop = 0;       // A variable to keep track of the count on Timer/Counter 1 when I stop counting the edges of the signal.
+volatile unsigned long tnow = 0;        // A variable to store temporarily store the count on Timer/Counter 1.
+const unsigned long cycles = 1000;      // This specifies how many cycles over which I want to average the frequency.
+float frequency = 0;                    // A variable to store the currently measured frequency
+
+ISR(TIMER1_OVF_vect)
+{
+  overflows += 1;
+}
+
+ISR(ANALOG_COMP_vect)
+{
+  tnow = TCNT1; // current time
+  edges += 1;
+  if (edges == 1)
+  { // Start counting edges.
+    tstart = overflows*65536 + tnow;
+  } else if (edges == cycles + 1) { // Stop counting edges.
+    tstop = overflows*65536 + tnow;
+    // Turn off Timer/Counter 1 and the comparator.
+    ACSR = 0;
+    TCCR1B = 0;
+  }
+}
+
 SIGNAL(TIMER2_COMPA_vect)
 {
    #ifdef LCD_DOGM128
@@ -432,6 +467,37 @@ SIGNAL(TIMER2_COMPA_vect)
    #endif  
 }
 
+void measureFreq(void) {
+  edges = 0;
+
+  ACSR = ACSR | B01000010; // enable analog comparator interrupt 
+  // on failing edge (bit 1) which would actually capture a rising
+  // edge of the signal and use the internal bandgap reference
+  // voltage as the positive input (bit 6).
+  delay(5); // A short wait for bandgap voltage to stabilize.
+  overflows = 0;
+
+  TCCR1A = B00000000; // Set Timer/Counter 1 in normal mode where 
+  // it will count to 0xFFFF then repeat.
+  TIMSK1 = TIMSK1 | B00000001; // Turn on Timer/Counter 1 overflow 
+  // interrupt (bit 0).
+
+  // Turn on the counter with no prescaler.
+  TCCR1B = TCCR1B | B00000001;
+
+  ACSR = ACSR | B00001000; // Enable analog comparator interrupt 
+  // (bit 3).
+
+  while (edges < (cycles+1)) {
+  // Do nothing.
+   lcd.setCursor(2,0);
+   DisplayValue(edges,0,0);
+  }
+
+  // Calculate the frequency.
+  frequency = (float)16000000*(float)cycles/(float)(tstop - tstart);
+ }
+ 
 //Setup function
 void setup()
 {
@@ -4753,14 +4819,15 @@ void LcdMenu(void)
   byte                        Selected;          //ID of selected item
   byte                        ID;                //ID of selected item
   unsigned int                Frequency;         //PWM frequency
-  void                        *Menu[6];
+  void                        *Menu[7];
   //Setup menu
   Menu[0] = (void *)PWM_str;
   Menu[1] = (void *)Selftest_str;
   Menu[2] = (void *)Adjustment_str;
   Menu[3] = (void *)Save_str;
   Menu[4] = (void *)Show_str;
-  Menu[5] = (void *)Default_str;
+  Menu[5] = (void *)Freq_str;
+  Menu[6] = (void *)Default_str;
   //Run menu
   lcd.lcd_clear();
   lcd.lcd_fixed_string(Select_str);
@@ -4798,6 +4865,29 @@ void LcdMenu(void)
     case 4:                                      //Show self adjument values
       ShowAdjust();
       break;
+    case 5:
+     Frequency = 1;
+     while (Frequency == 1) {
+      pinMode(7,INPUT); // This is the analog comparator negative input.
+      SREG = SREG | B10000000; // Enable gobal interrupts. They should 
+      // already be enabled but I like to do this out of good measure.
+      lcd.lcd_clear();
+      lcd.lcd_line(0);
+      lcd.lcd_string("M:");
+      delay(500);
+      measureFreq();
+      lcd.lcd_clear();
+      lcd.lcd_line(0);
+      lcd.lcd_string("Freq:");
+      DisplayValue(frequency,0,'H');
+      lcd.lcd_data('z');
+      lcd.lcd_line(1);
+      lcd.lcd_string("Short press - next");
+      lcd.lcd_line(2);
+      lcd.lcd_string("Long press - break");
+      Frequency = TestKey(0,0);
+     }
+     break;   
   }
   //Display end of item
   lcd.lcd_clear();
