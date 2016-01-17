@@ -66,6 +66,7 @@
  - 7.01.2016 v1.1    PWM tool works now with all display modes
  - 9.01.2016 v1.1a   Zener
  -15.01.2016 v1.1b   Frequency measurement up to 1000Hz
+ -17.01.2016 v1.1c   Frequency input amplifier and control with PB4 pin.
 */
 
 //WorkAround for IDE ifndef bug
@@ -302,7 +303,7 @@ const unsigned char CompOffset_str[] PROGMEM = "AComp";
 const unsigned char PWM_str[] PROGMEM = "PWM";
 const unsigned char Hertz_str[] PROGMEM = "Hz";
 const unsigned char Splash_str[] PROGMEM = "Ardutester ";
-const unsigned char Version_str[] PROGMEM = "v1.1b";
+const unsigned char Version_str[] PROGMEM = "v1.1c";
 
 #if defined( DEBUG_PRINT) || defined(LCD_DOGM128) 
   const unsigned char Cap_str[] PROGMEM = {'-','|','|', '-',0};
@@ -384,6 +385,7 @@ unsigned int selFreq(void);
 void LcdMenu(void);
 byte MenuTool(byte Items, byte Type, void *Menu[], unsigned char *Unit);
 void DefaultPar(void);
+void StartFreqMeasure(void);
 
 //Diode icon with anode at left side
 byte DiodeIcon1[8]  = {0x11, 0x19, 0x1d, 0x1f, 0x1d, 0x19, 0x11, 0x00};
@@ -468,6 +470,10 @@ SIGNAL(TIMER2_COMPA_vect)
 }
 
 void measureFreq(void) {
+  #ifdef DEBUG_PRINT
+  int displayed = 0;
+  int ed = 0;
+  #endif
   edges = 0;
 
   ACSR = ACSR | B01000010; // enable analog comparator interrupt 
@@ -489,9 +495,19 @@ void measureFreq(void) {
   // (bit 3).
 
   while (edges < (cycles+1)) {
-  // Do nothing.
-   lcd.setCursor(2,0);
-   DisplayValue(edges,0,0);
+    // Do something, dislay progess...
+    #ifdef DEBUG_PRINT
+     ed = edges;
+     if((ed % 100) == 0) {
+        if( displayed != ed ) {
+          displayed = ed;
+          DisplayValue(ed,0,0); Serial.println();
+        }
+     }
+    #else
+     lcd.setCursor(2,0);
+     DisplayValue(edges,0,0);
+    #endif
   }
 
   // Calculate the frequency.
@@ -517,6 +533,8 @@ void setup()
     // Set portB0 output and Low value
    pinMode(8, OUTPUT); // PB0
    digitalWrite( 8, LOW); // PB0
+   pinMode(12, OUTPUT); // PB4
+   digitalWrite(12, LOW); // PB4
   #endif
   #ifdef DEBUG_PRINT   
     Serial.begin(9600);                          //Serial Output
@@ -4693,6 +4711,7 @@ void MainMenu(void)
       Serial.println(X("  4) Save"));
       Serial.println(X("  5) Show"));
       Serial.println(X("  6) Default"));
+      Serial.println(X("  7) Frequency"));
       Serial.print(X("  0) Exit       >"));
       //Check for incoming serial data:
       do
@@ -4747,6 +4766,11 @@ void MainMenu(void)
               break;
            case 6:                               //Default Parameters
               DefaultPar();
+              Serial.println();
+              cmdexec=true;
+              break;
+            case 7:
+              StartFreqMeasure();
               Serial.println();
               cmdexec=true;
               break;
@@ -4811,6 +4835,36 @@ unsigned int selFreq(void)
 }
 #endif // used only for Serial input
 
+void StartFreqMeasure(void)
+{
+     unsigned int Test;
+     Test = 1;
+     pinMode(12, OUTPUT); // PB4
+     digitalWrite(12, HIGH); // PB4
+     while (Test == 1) {
+      pinMode(7,INPUT); // This is the analog comparator negative input.
+      SREG = SREG | B10000000; // Enable gobal interrupts. They should 
+      // already be enabled but I like to do this out of good measure.
+      lcd.lcd_clear();
+      lcd.lcd_line(0);
+      lcd.lcd_string("M:");
+      delay(500);
+      measureFreq();
+      lcd.lcd_clear();
+      lcd.lcd_line(0);
+      lcd.lcd_string("Freq:");
+      DisplayValue(frequency,0,'H');
+      lcd.lcd_data('z');
+      lcd.lcd_line(1);
+      lcd.lcd_string("Short Press - next");
+      lcd.lcd_line(2);
+      lcd.lcd_string("Long Press - break");
+      Test = TestKey(0,0);
+     }
+     pinMode(12, OUTPUT); // PB4
+     digitalWrite(12, LOW); // PB4
+}
+
 #ifndef DEBUG_PRINT
 //Lcd Menu
 void LcdMenu(void)
@@ -4866,27 +4920,7 @@ void LcdMenu(void)
       ShowAdjust();
       break;
     case 5:
-     Frequency = 1;
-     while (Frequency == 1) {
-      pinMode(7,INPUT); // This is the analog comparator negative input.
-      SREG = SREG | B10000000; // Enable gobal interrupts. They should 
-      // already be enabled but I like to do this out of good measure.
-      lcd.lcd_clear();
-      lcd.lcd_line(0);
-      lcd.lcd_string("M:");
-      delay(500);
-      measureFreq();
-      lcd.lcd_clear();
-      lcd.lcd_line(0);
-      lcd.lcd_string("Freq:");
-      DisplayValue(frequency,0,'H');
-      lcd.lcd_data('z');
-      lcd.lcd_line(1);
-      lcd.lcd_string("Short press - next");
-      lcd.lcd_line(2);
-      lcd.lcd_string("Long press - break");
-      Frequency = TestKey(0,0);
-     }
+     StartFreqMeasure();
      break;   
   }
   //Display end of item
