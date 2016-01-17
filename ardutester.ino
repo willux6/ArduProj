@@ -474,7 +474,10 @@ void measureFreq(void) {
   int displayed = 0;
   int ed = 0;
   #endif
-  edges = 0;
+  edges = 0L;
+  tstop = 0L;
+  tstart = 0L;
+  tnow = 0L;
 
   ACSR = ACSR | B01000010; // enable analog comparator interrupt 
   // on failing edge (bit 1) which would actually capture a rising
@@ -493,7 +496,9 @@ void measureFreq(void) {
 
   ACSR = ACSR | B00001000; // Enable analog comparator interrupt 
   // (bit 3).
-
+  #ifdef BUTTON_INST
+    pinMode(TEST_BUTTON, INPUT_PULLUP);          //Reinitialize the pushbutton pin as an input
+  #endif
   while (edges < (cycles+1)) {
     // Do something, dislay progess...
     #ifdef DEBUG_PRINT
@@ -507,6 +512,14 @@ void measureFreq(void) {
     #else
      lcd.setCursor(2,0);
      DisplayValue(edges,0,0);
+    #endif
+    #ifdef BUTTON_INST
+    // Test is button pressed
+    if (!(digitalRead(TEST_BUTTON)))             //If key is pressed
+    {
+      delay(500);
+      break;
+    }
     #endif
   }
 
@@ -4853,7 +4866,7 @@ void StartFreqMeasure(void)
       lcd.lcd_clear();
       lcd.lcd_line(0);
       lcd.lcd_string("Freq:");
-      DisplayValue(frequency,0,'H');
+      DisplayValue((unsigned long)frequency,0,'H');
       lcd.lcd_data('z');
       lcd.lcd_line(1);
       lcd.lcd_string("Short Press - next");
